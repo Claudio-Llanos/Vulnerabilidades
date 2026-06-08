@@ -1,0 +1,61 @@
+version: '3.9'
+
+services:
+  db:
+    image: postgres:15-alpine
+    container_name: vuln_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: vulnerabilidades
+      POSTGRES_USER: vulnuser
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-vuln2024secure}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - vuln_net
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vulnuser -d vulnerabilidades"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build: ./backend
+    container_name: vuln_backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://vulnuser:${DB_PASSWORD:-vuln2024secure}@db:5432/vulnerabilidades
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - vuln_net
+
+  frontend:
+    build: ./frontend
+    container_name: vuln_frontend
+    restart: unless-stopped
+    networks:
+      - vuln_net
+
+  nginx:
+    image: nginx:alpine
+    container_name: vuln_nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - backend
+      - frontend
+    networks:
+      - vuln_net
+
+volumes:
+  pgdata:
+
+networks:
+  vuln_net:
+    driver: bridge
