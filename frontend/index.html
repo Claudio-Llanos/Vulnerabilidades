@@ -305,6 +305,11 @@ td{padding:10px 14px;vertical-align:middle}
 /* VIEW-ONLY banner */
 .view-banner{background:var(--amber-light);border-bottom:1px solid var(--amber-mid);padding:6px 24px;font-size:12px;color:var(--amber);font-weight:500;display:none}
 .view-banner.show{display:block}
+.cfg-item{display:flex;align-items:center;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--gray100)}
+.cfg-item:last-child{border-bottom:none}
+.cfg-item-name{font-size:12px;color:var(--gray700)}
+.cfg-del{background:none;border:none;color:var(--gray300);cursor:pointer;font-size:14px;padding:2px 6px;transition:color 0.12s}
+.cfg-del:hover{color:var(--red)}
 </style>
 </head>
 <body>
@@ -357,6 +362,9 @@ td{padding:10px 14px;vertical-align:middle}
       <div class="nav-sec">Herramientas</div>
       <button class="nav-item admin-only" id="navImport" onclick="showPage('importar',this)">
         <span class="nav-ico">📥</span> Importar Excel
+      </button>
+      <button class="nav-item admin-only" id="navConfig" onclick="showPage('config',this)">
+        <span class="nav-ico">⚙️</span> Configuración
       </button>
     </nav>
     <div class="sb-footer">
@@ -431,8 +439,14 @@ td{padding:10px 14px;vertical-align:middle}
           <option value="2">P2 — Media</option>
           <option value="3">P3 — Baja</option>
         </select>
-        <select class="fsel" id="fSubg" onchange="fetchVulns(1)" style="max-width:200px">
+        <select class="fsel" id="fSubg" onchange="onSubgChange()" style="max-width:200px">
           <option value="">Todas las subgerencias</option>
+        </select>
+        <select class="fsel" id="fArea" onchange="fetchVulns(1)" style="max-width:160px">
+          <option value="">Todas las áreas</option>
+        </select>
+        <select class="fsel" id="fTipo" onchange="fetchVulns(1)" style="max-width:160px">
+          <option value="">Todos los tipos</option>
         </select>
         <div class="tb-spacer"></div>
         <span class="rinfo" id="rInfo"></span>
@@ -516,7 +530,31 @@ td{padding:10px 14px;vertical-align:middle}
     <button class="mclose" onclick="closeModal('ovEdit')">✕</button>
   </div>
   <div class="mbody">
-    <div class="fg"><label>Detalle *</label><textarea id="f-detalle" rows="3"></textarea></div>
+    <div class="fg"><label>Detalle *</label><textarea id="f-detalle" rows="3" placeholder="Describe la vulnerabilidad..."></textarea></div>
+    <div class="form-row">
+      <div class="fg"><label>Subgerencia</label>
+        <select id="f-subgerencia" onchange="onFormSubgChange()">
+          <option value="">Selecciona subgerencia...</option>
+        </select>
+      </div>
+      <div class="fg"><label>Área</label>
+        <select id="f-area">
+          <option value="">Selecciona área...</option>
+        </select>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="fg"><label>Tipo</label>
+        <select id="f-tipo">
+          <option value="">Selecciona tipo...</option>
+        </select>
+      </div>
+      <div class="fg"><label>Responsable ING</label>
+        <select id="f-responsable_ing">
+          <option value="">Selecciona responsable...</option>
+        </select>
+      </div>
+    </div>
     <div class="form-row">
       <div class="fg"><label>Estado O&amp;M</label>
         <select id="f-estado_om">
@@ -534,26 +572,9 @@ td{padding:10px 14px;vertical-align:middle}
       </div>
     </div>
     <div class="form-row">
-      <div class="fg"><label>Subgerencia</label><input id="f-subgerencia" type="text"></div>
-      <div class="fg"><label>Área</label><input id="f-area" type="text"></div>
-    </div>
-    <div class="form-row">
-      <div class="fg"><label>Solicitante</label><input id="f-solicitante" type="text"></div>
-      <div class="fg"><label>Tipo</label><input id="f-tipo" type="text"></div>
-    </div>
-    <div class="form-row">
-      <div class="fg"><label>Responsable O&amp;M</label><input id="f-responsable_om" type="text"></div>
-      <div class="fg"><label>Responsable ING</label><input id="f-responsable_ing" type="text"></div>
-    </div>
-    <div class="form-row">
       <div class="fg"><label>Fecha Declaración</label><input id="f-fecha_declaracion" type="date"></div>
       <div class="fg"><label>Fecha Compromiso</label><input id="f-fecha_compromiso" type="date"></div>
     </div>
-    <div class="form-row">
-      <div class="fg"><label>Fecha Solución</label><input id="f-fecha_solucion" type="date"></div>
-      <div class="fg"><label>Estado ING</label><input id="f-estado_ing" type="text"></div>
-    </div>
-    <div class="fg"><label>Condición ING</label><input id="f-condicion_ing" type="text"></div>
     <div class="fg"><label>Observaciones O&amp;M</label><textarea id="f-obs_om" rows="2"></textarea></div>
     <div class="fg"><label>Observaciones ING</label><textarea id="f-obs_ing" rows="2"></textarea></div>
   </div>
@@ -625,6 +646,7 @@ function startApp() {
     document.getElementById('viewBanner').classList.add('show');
   }
 
+  loadFiltros();
   loadDashboard();
 }
 
@@ -691,6 +713,7 @@ function showPage(name, btn) {
   document.getElementById('pageTitle').textContent = titles[name]||name;
   if (name==='dashboard') loadDashboard();
   if (name==='tabla') { loadFiltros(); fetchVulns(1); }
+  if (name==='config') { loadFiltros(); loadConfig(); }
 }
 
 // ══════════════════════════════════════════
@@ -919,8 +942,11 @@ async function fetchVulns(page) {
   const e = document.getElementById('fEstado').value;
   const pr = document.getElementById('fPri').value;
   const s = document.getElementById('fSubg').value;
+  const ar = document.getElementById('fArea')?.value||'';
+  const ti = document.getElementById('fTipo')?.value||'';
   if (q) p.set('q',q); if (e) p.set('estado',e);
   if (pr) p.set('prioridad',pr); if (s) p.set('subgerencia',s);
+  if (ar) p.set('area',ar); if (ti) p.set('tipo',ti);
   try {
     const r = await fetch(API + '/api/vulnerabilidades?' + p);
     const d = await r.json();
@@ -1093,39 +1119,62 @@ async function addNota(id) {
 async function openEdit(id) {
   if(currentRole!=='admin'){toast('Sin permisos','err');return;}
   currentId=id||null;
-  const fields=['detalle','estado_om','prioridad','subgerencia','area','solicitante','tipo',
-                'responsable_om','responsable_ing','fecha_declaracion','fecha_compromiso',
-                'fecha_solucion','estado_ing','condicion_ing','obs_om','obs_ing'];
-  fields.forEach(f=>{const el=document.getElementById('f-'+f);if(el)el.value='';});
+  document.getElementById('editTitle').textContent=id?`Editar #${id}`:'Nueva Vulnerabilidad';
+
+  // Reset all fields
+  ['detalle','obs_om','obs_ing'].forEach(f=>{
+    const el=document.getElementById('f-'+f);if(el)el.value='';
+  });
+  ['f-fecha_declaracion','f-fecha_compromiso'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
   document.getElementById('f-estado_om').value='PENDIENTE';
   document.getElementById('f-prioridad').value='1';
-  document.getElementById('f-tipo').value='VULNERABILIDAD';
-  document.getElementById('editTitle').textContent=id?`Editar #${id}`:'Nueva Vulnerabilidad';
+
+  // Fill dropdowns first
+  await fillFormDropdowns();
+
   if(id){
     try{
       const r=await fetch(API+'/api/vulnerabilidades/'+id);
       const v=await r.json();
-      fields.forEach(f=>{
-        const el=document.getElementById('f-'+f);if(!el)return;
-        const val=v[f];
-        if(val!==null&&val!==undefined) el.value=f.startsWith('fecha')?fmtDate(val):val;
-      });
-    }catch(e){}
+      if(v.detalle) document.getElementById('f-detalle').value=v.detalle;
+      if(v.obs_om) document.getElementById('f-obs_om').value=v.obs_om;
+      if(v.obs_ing) document.getElementById('f-obs_ing').value=v.obs_ing;
+      if(v.estado_om) document.getElementById('f-estado_om').value=v.estado_om;
+      if(v.prioridad) document.getElementById('f-prioridad').value=String(v.prioridad);
+      if(v.fecha_declaracion) document.getElementById('f-fecha_declaracion').value=fmtDate(v.fecha_declaracion);
+      if(v.fecha_compromiso) document.getElementById('f-fecha_compromiso').value=fmtDate(v.fecha_compromiso);
+      // Set dropdowns after they are populated
+      if(v.subgerencia){
+        document.getElementById('f-subgerencia').value=v.subgerencia;
+        await onFormSubgChange();
+      }
+      if(v.area) document.getElementById('f-area').value=v.area;
+      if(v.tipo) document.getElementById('f-tipo').value=v.tipo;
+      if(v.responsable_ing) document.getElementById('f-responsable_ing').value=v.responsable_ing;
+    }catch(e){ toast('Error cargando datos','err'); return; }
   }
   document.getElementById('ovEdit').classList.add('open');
 }
-function openNueva(){openEdit(null);}
+function openNueva(){
+  if (!CFG.subgerencias.length) {
+    loadFiltros().then(() => openEdit(null));
+  } else {
+    openEdit(null);
+  }
+}
 
 async function saveForm() {
   if(currentRole!=='admin'){toast('Sin permisos','err');return;}
   const detalle=document.getElementById('f-detalle').value.trim();
   if(!detalle){toast('El detalle es obligatorio','err');return;}
   const body={};
-  ['detalle','tipo','subgerencia','area','solicitante','responsable_om','responsable_ing','estado_om','condicion_ing','estado_ing','obs_om','obs_ing'].forEach(f=>{
+  ['detalle','tipo','subgerencia','area','responsable_ing','estado_om','obs_om','obs_ing'].forEach(f=>{
     const v=document.getElementById('f-'+f)?.value?.trim();if(v)body[f]=v;
   });
   body.prioridad=parseInt(document.getElementById('f-prioridad').value);
-  ['fecha_declaracion','fecha_compromiso','fecha_solucion'].forEach(f=>{
+  ['fecha_declaracion','fecha_compromiso'].forEach(f=>{
     const v=document.getElementById('f-'+f)?.value;if(v)body[f]=v;
   });
   try{

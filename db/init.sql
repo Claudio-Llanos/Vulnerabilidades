@@ -1,8 +1,8 @@
--- Vulnerabilidades GoC v2 — Schema limpio
+-- Vulnerabilidades GoC v3 — Schema con listas controladas
 
 CREATE TABLE IF NOT EXISTS vulnerabilidades (
     id              SERIAL PRIMARY KEY,
-    tipo            VARCHAR(100) DEFAULT 'VULNERABILIDAD',
+    tipo            VARCHAR(100) DEFAULT 'Vulnerabilidad',
     detalle         TEXT NOT NULL,
     subgerencia     VARCHAR(200),
     area            VARCHAR(200),
@@ -41,12 +41,40 @@ CREATE TABLE IF NOT EXISTS historial (
     created_at           TIMESTAMP DEFAULT NOW()
 );
 
+-- Listas controladas
+CREATE TABLE IF NOT EXISTS cfg_subgerencias (
+    id      SERIAL PRIMARY KEY,
+    nombre  VARCHAR(200) UNIQUE NOT NULL,
+    activo  BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS cfg_areas (
+    id              SERIAL PRIMARY KEY,
+    nombre          VARCHAR(200) NOT NULL,
+    subgerencia     VARCHAR(200),
+    activo          BOOLEAN DEFAULT TRUE,
+    UNIQUE(nombre, subgerencia)
+);
+
+CREATE TABLE IF NOT EXISTS cfg_tipos (
+    id      SERIAL PRIMARY KEY,
+    nombre  VARCHAR(200) UNIQUE NOT NULL,
+    activo  BOOLEAN DEFAULT TRUE
+);
+
+CREATE TABLE IF NOT EXISTS cfg_responsables (
+    id      SERIAL PRIMARY KEY,
+    nombre  VARCHAR(200) UNIQUE NOT NULL,
+    activo  BOOLEAN DEFAULT TRUE
+);
+
 -- Índices
-CREATE INDEX IF NOT EXISTS idx_vuln_estado   ON vulnerabilidades(estado_om);
+CREATE INDEX IF NOT EXISTS idx_vuln_estado    ON vulnerabilidades(estado_om);
 CREATE INDEX IF NOT EXISTS idx_vuln_prioridad ON vulnerabilidades(prioridad);
-CREATE INDEX IF NOT EXISTS idx_vuln_subg     ON vulnerabilidades(subgerencia);
-CREATE INDEX IF NOT EXISTS idx_notas_vuln    ON notas(vulnerabilidad_id);
-CREATE INDEX IF NOT EXISTS idx_hist_vuln     ON historial(vulnerabilidad_id);
+CREATE INDEX IF NOT EXISTS idx_vuln_subg      ON vulnerabilidades(subgerencia);
+CREATE INDEX IF NOT EXISTS idx_vuln_area      ON vulnerabilidades(area);
+CREATE INDEX IF NOT EXISTS idx_notas_vuln     ON notas(vulnerabilidad_id);
+CREATE INDEX IF NOT EXISTS idx_hist_vuln      ON historial(vulnerabilidad_id);
 
 -- Auto updated_at
 CREATE OR REPLACE FUNCTION set_updated_at()
@@ -57,3 +85,57 @@ $$ LANGUAGE plpgsql;
 CREATE TRIGGER trg_vuln_updated
     BEFORE UPDATE ON vulnerabilidades
     FOR EACH ROW EXECUTE FUNCTION set_updated_at();
+
+-- Datos iniciales — Subgerencias
+INSERT INTO cfg_subgerencias (nombre) VALUES
+  ('INFRAESTRUCTURA REDES IP'),
+  ('OPERACION SERVICIOS DE TV&VIDEO'),
+  ('PREPAGO Y SVA'),
+  ('OPERACION REDES TX Y BACKHAUL'),
+  ('VNF OP. MOVIL & TELEFONIA FIJA -ROAMING'),
+  ('INFRAESTRUCTURA TECNOLOGICA Y DEVOPS'),
+  ('OPERACION PREPAGO Y SVA MOVIL')
+ON CONFLICT DO NOTHING;
+
+-- Datos iniciales — Áreas
+INSERT INTO cfg_areas (nombre, subgerencia) VALUES
+  ('Servicios',           'INFRAESTRUCTURA REDES IP'),
+  ('Seguridad',           'INFRAESTRUCTURA REDES IP'),
+  ('MPLS & ISP',          'INFRAESTRUCTURA REDES IP'),
+  ('TX Backhaul',         'OPERACION REDES TX Y BACKHAUL'),
+  ('Prepago',             'PREPAGO Y SVA'),
+  ('SVA Movil',           'OPERACION PREPAGO Y SVA MOVIL'),
+  ('TV & Video',          'OPERACION SERVICIOS DE TV&VIDEO'),
+  ('DevOps',              'INFRAESTRUCTURA TECNOLOGICA Y DEVOPS'),
+  ('VNF',                 'VNF OP. MOVIL & TELEFONIA FIJA -ROAMING')
+ON CONFLICT DO NOTHING;
+
+-- Datos iniciales — Tipos
+INSERT INTO cfg_tipos (nombre) VALUES
+  ('Sin Redundancia Geográfica'),
+  ('Sin Redundancia Local'),
+  ('Hardware Obsoleto'),
+  ('Software Obsoleto'),
+  ('Hardware | Software'),
+  ('Salida De Sitio'),
+  ('Conexión Energía'),
+  ('Alta Disponibilidad Local'),
+  ('Alta Disponibilidad Geográfica'),
+  ('Tráfico'),
+  ('Fuera De Soporte HW Y FW (EOX)'),
+  ('Equipos Sin AAA'),
+  ('Seguridad'),
+  ('Vulnerabilidad')
+ON CONFLICT DO NOTHING;
+
+-- Datos iniciales — Responsables ING
+INSERT INTO cfg_responsables (nombre) VALUES
+  ('Hernan Fuentes'),
+  ('Mauricio Vidal'),
+  ('Ortega'),
+  ('Morales'),
+  ('David Ortega'),
+  ('H. Lopez'),
+  ('Mario Ramirez'),
+  ('Victor Betancourt')
+ON CONFLICT DO NOTHING;
