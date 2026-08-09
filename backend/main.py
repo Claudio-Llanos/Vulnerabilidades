@@ -135,15 +135,24 @@ async def dashboard(s: AsyncSession = Depends(db)):
     prioridades = await s.execute(text("SELECT prioridad, COUNT(*) FROM vulnerabilidades WHERE prioridad IS NOT NULL GROUP BY prioridad ORDER BY prioridad"))
     subgs       = await s.execute(text("SELECT subgerencia, COUNT(*) FROM vulnerabilidades WHERE subgerencia IS NOT NULL GROUP BY subgerencia ORDER BY COUNT(*) DESC LIMIT 10"))
     responsables= await s.execute(text("SELECT responsable_ing, COUNT(*) FROM vulnerabilidades WHERE responsable_ing IS NOT NULL GROUP BY responsable_ing ORDER BY COUNT(*) DESC LIMIT 10"))
-    vencidas    = await s.execute(text("SELECT COUNT(*) FROM vulnerabilidades WHERE fecha_compromiso < NOW() AND estado_om NOT IN ('TERMINADA','CERRADO')"))
     crit_data   = await s.execute(text("SELECT prioridad, estado_om, COUNT(*) FROM vulnerabilidades WHERE prioridad IS NOT NULL GROUP BY prioridad, estado_om ORDER BY prioridad, estado_om"))
+    top_antiguas = await s.execute(text("""
+        SELECT id, detalle, responsable_ing, prioridad, estado_om, fecha_declaracion,
+               CURRENT_DATE - fecha_declaracion::date AS dias_activa
+        FROM vulnerabilidades
+        WHERE estado_om NOT IN ('TERMINADA','CERRADO','FINALIZADO')
+          AND fecha_declaracion IS NOT NULL
+        ORDER BY fecha_declaracion ASC
+        LIMIT 10
+    """))
     return {
-        "total": total.scalar(), "vencidas": vencidas.scalar(),
+        "total": total.scalar(),
         "por_estado": [{"estado":r[0],"total":r[1]} for r in estados],
         "por_prioridad": [{"prioridad":r[0],"total":r[1]} for r in prioridades],
         "por_subgerencia": [{"subgerencia":r[0],"total":r[1]} for r in subgs],
         "por_responsable": [{"responsable":r[0],"total":r[1]} for r in responsables],
         "criticidad_estado": [{"prioridad":r[0],"estado":r[1],"total":r[2]} for r in crit_data],
+        "top_antiguas": [{"id":r[0],"detalle":r[1],"responsable_ing":r[2],"prioridad":r[3],"estado_om":r[4],"fecha_declaracion":str(r[5]),"dias_activa":int(r[6])} for r in top_antiguas],
     }
 
 # ── VULNERABILIDADES ───────────────────────────────────────────────────────────
