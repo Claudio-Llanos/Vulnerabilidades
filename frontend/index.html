@@ -828,7 +828,7 @@ function renderCharts(d) {
     const cantidad = Number(x.total) || 0;
     item.total += cantidad;
 
-    if (x.estado === "PENDIENTE") {
+    if (x.estado === "SIN ACCION") {
       item.pendiente += cantidad;
     } else if (x.estado === "EN CURSO") {
       item.en_curso += cantidad;
@@ -901,7 +901,7 @@ function renderCharts(d) {
     }).join("");
   }
 
-  fetch(API + "/api/vulnerabilidades?limit=200&page=1")
+  fetch(API + "/api/vulnerabilidades?limit=1000&page=1")
     .then(r => {
       if (!r.ok) throw new Error("Error loading subgerencias");
       return r.json();
@@ -911,7 +911,7 @@ function renderCharts(d) {
 
       data.items.forEach(v => {
         const nombre = v.subgerencia || "Sin subgerencia";
-        const estado = v.estado_om || "PENDIENTE";
+        const estado = v.estado_om || "SIN ACCION";
 
         if (!agrupadas[nombre]) {
           agrupadas[nombre] = {
@@ -925,7 +925,7 @@ function renderCharts(d) {
 
         agrupadas[nombre].total += 1;
 
-        if (estado === "PENDIENTE") {
+        if (estado === "SIN ACCION") {
           agrupadas[nombre].pendiente += 1;
         } else if (estado === "EN CURSO") {
           agrupadas[nombre].en_curso += 1;

@@ -138,9 +138,9 @@ def safe_int(val):
     except: return None
 
 def norm_estado(val):
-    if not val: return "PENDIENTE"
+    if not val: return "SIN ACCION"
     v = str(val).strip().upper()
-    return v if v in ['PENDIENTE','EN CURSO','FINALIZADO'] else "PENDIENTE"
+    return v if v in ['SIN ACCION','EN CURSO','FINALIZADO'] else "SIN ACCION"
 
 def norm_subgerencia(val):
     if not val: return None
@@ -206,7 +206,7 @@ async def dashboard(s: AsyncSession = Depends(db)):
 @app.get("/api/vulnerabilidades")
 async def listar(
     s: AsyncSession = Depends(db),
-    page: int = Query(1,ge=1), limit: int = Query(50,ge=1,le=200),
+    page: int = Query(1,ge=1), limit: int = Query(50,ge=1,le=2000),
     q: Optional[str]=None, estado: Optional[str]=None,
     prioridad: Optional[int]=None, subgerencia: Optional[str]=None,
     area: Optional[str]=None, tipo: Optional[str]=None,
