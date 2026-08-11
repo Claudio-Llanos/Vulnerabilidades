@@ -140,7 +140,7 @@ def safe_int(val):
 def norm_estado(val):
     if not val: return "SIN ACCION"
     v = str(val).strip().upper()
-    return v if v in ['SIN ACCION','EN CURSO','FINALIZADO'] else "SIN ACCION"
+    return v if v in ['SIN ACCION','EN CURSO','PENDIENTE APROBACION','FINALIZADO'] else "SIN ACCION"
 
 def norm_subgerencia(val):
     if not val: return None
@@ -797,3 +797,123 @@ async def listar_capex(s: AsyncSession = Depends(db)):
             prioridad
     """))
     return [dict(r._mapping) for r in rows]
+
+@app.get("/api/config/asociacion")
+async def get_asociacion(s: AsyncSession = Depends(db)):
+    r = await s.execute(text("SELECT id, responsable_ing, responsable_om, subgerencia, area, activo FROM cfg_asociacion_ing_om WHERE activo=TRUE ORDER BY responsable_ing"))
+    return [dict(x._mapping) for x in r]
+
+@app.post("/api/config/asociacion", status_code=201)
+async def add_asociacion(body: dict, s: AsyncSession = Depends(db)):
+    await s.execute(text(
+        "INSERT INTO cfg_asociacion_ing_om (responsable_ing, responsable_om, subgerencia, area) VALUES (:ing, :om, :sub, :area)"
+    ), {"ing": body.get("responsable_ing"), "om": body.get("responsable_om"),
+        "sub": body.get("subgerencia"), "area": body.get("area")})
+    await s.commit()
+    return {"message": "OK"}
+
+@app.delete("/api/config/asociacion/{id}")
+async def del_asociacion(id: int, s: AsyncSession = Depends(db)):
+    await s.execute(text("UPDATE cfg_asociacion_ing_om SET activo=FALSE WHERE id=:id"), {"id": id})
+    await s.commit()
+    return {"message": "OK"}
+
+async def get_responsable_om(s: AsyncSession, responsable_ing: str, subgerencia: str, area: str):
+    r = await s.execute(text("""
+        SELECT responsable_om FROM cfg_asociacion_ing_om 
+        WHERE responsable_ing = :ing AND activo=TRUE 
+        AND (area = :area OR area IS NULL)
+        AND (subgerencia = :sub OR subgerencia IS NULL)
+        ORDER BY area NULLS LAST LIMIT 1
+    """), {"ing": responsable_ing, "sub": subgerencia, "area": area})
+    row = r.fetchone()
+    return row[0] if row else None
+
+@app.post("/api/vulnerabilidades/{vid}/aprobar")
+async def aprobar_cierre(vid: int, body: dict, s: AsyncSession = Depends(db)):
+    usuario = body.get("usuario_nombre", "Usuario")
+    rol = body.get("rol", "")
+    row = await s.execute(text("SELECT estado_om, detalle, responsable_ing FROM vulnerabilidades WHERE id=:id"), {"id": vid})
+    r = row.fetchone()
+    if not r or r.estado_om != "PENDIENTE APROBACION":
+        raise HTTPException(400, "No esta pendiente de aprobacion")
+    if rol != "admin":
+        check = await s.execute(text(
+            "SELECT 1 FROM cfg_asociacion_ing_om WHERE responsable_ing=:ing AND responsable_om=:om AND activo=TRUE LIMIT 1"
+        ), {"ing": r.responsable_ing, "om": usuario})
+        if not check.fetchone():
+            raise HTTPException(403, "No tienes permiso para aprobar esta vulnerabilidad")
+    await s.execute(text(
+        "UPDATE vulnerabilidades SET estado_om='FINALIZADO', fecha_solucion=CURRENT_DATE WHERE id=:id"
+    ), {"id": vid})
+    await s.execute(text(
+        "INSERT INTO historial (vulnerabilidad_id,campo,valor_anterior,valor_nuevo,usuario) VALUES (:id,'estado_om','PENDIENTE APROBACION','FINALIZADO',:u)"
+    ), {"id": vid, "u": usuario})
+    await s.commit()
+    dest = await get_mail_dest(s)
+    import asyncio
+    asyncio.create_task(mail_evento(
+        evento="Cierre APROBADO", vuln_id=vid, detalle=r.detalle[:100], usuario=usuario,
+        cambios=["Estado: PENDIENTE APROBACION -> FINALIZADO"], dest=dest
+    ))
+    return {"message": "Aprobado"}
+
+@app.post("/api/vulnerabilidades/{vid}/rechazar")
+async def rechazar_cierre(vid: int, body: dict, s: AsyncSession = Depends(db)):
+    usuario = body.get("usuario_nombre", "Usuario")
+    motivo = body.get("motivo", "")
+    rol = body.get("rol", "")
+    row = await s.execute(text("SELECT estado_om, detalle, responsable_ing FROM vulnerabilidades WHERE id=:id"), {"id": vid})
+    r = row.fetchone()
+    if not r or r.estado_om != "PENDIENTE APROBACION":
+        raise HTTPException(400, "No esta pendiente de aprobacion")
+    if rol != "admin":
+        check = await s.execute(text(
+            "SELECT 1 FROM cfg_asociacion_ing_om WHERE responsable_ing=:ing AND responsable_om=:om AND activo=TRUE LIMIT 1"
+        ), {"ing": r.responsable_ing, "om": usuario})
+        if not check.fetchone():
+            raise HTTPException(403, "No tienes permiso para rechazar esta vulnerabilidad")
+    await s.execute(text(
+        "UPDATE vulnerabilidades SET estado_om='EN CURSO' WHERE id=:id"
+    ), {"id": vid})
+    await s.execute(text(
+        "INSERT INTO historial (vulnerabilidad_id,campo,valor_anterior,valor_nuevo,usuario) VALUES (:id,'estado_om','PENDIENTE APROBACION','EN CURSO (rechazado)',:u)"
+    ), {"id": vid, "u": usuario})
+    if motivo:
+        await s.execute(text(
+            "INSERT INTO notas (vulnerabilidad_id,autor,texto) VALUES (:id,:u,:t)"
+        ), {"id": vid, "u": usuario, "t": "Cierre RECHAZADO: " + motivo})
+    await s.commit()
+    dest = await get_mail_dest(s)
+    import asyncio
+    asyncio.create_task(mail_evento(
+        evento="Cierre RECHAZADO", vuln_id=vid, detalle=r.detalle[:100], usuario=usuario,
+        cambios=["Estado: PENDIENTE APROBACION -> EN CURSO", "Motivo: " + motivo], dest=dest
+    ))
+    return {"message": "Rechazado"}
+
+@app.get("/api/vulnerabilidades/pendientes-aprobacion")
+async def pendientes_aprobacion(responsable_om: str, s: AsyncSession = Depends(db)):
+    r = await s.execute(text("""
+        SELECT v.id, v.detalle, v.subgerencia, v.area, v.responsable_ing, v.estado_om
+        FROM vulnerabilidades v
+        WHERE v.estado_om = 'PENDIENTE APROBACION'
+        AND v.responsable_ing IN (
+            SELECT DISTINCT responsable_ing FROM cfg_asociacion_ing_om 
+            WHERE responsable_om = :om AND activo = TRUE
+        )
+        ORDER BY v.id DESC
+    """), {"om": responsable_om})
+    return [dict(x._mapping) for x in r]
+
+@app.get("/api/vulnerabilidades/{vid}/puede-aprobar")
+async def puede_aprobar(vid: int, responsable_om: str, s: AsyncSession = Depends(db)):
+    row = await s.execute(text("SELECT responsable_ing FROM vulnerabilidades WHERE id=:id"), {"id": vid})
+    r = row.fetchone()
+    if not r or not r.responsable_ing:
+        return {"puede": False}
+    check = await s.execute(text("""
+        SELECT 1 FROM cfg_asociacion_ing_om 
+        WHERE responsable_ing = :ing AND responsable_om = :om AND activo = TRUE LIMIT 1
+    """), {"ing": r.responsable_ing, "om": responsable_om})
+    return {"puede": check.fetchone() is not None}
