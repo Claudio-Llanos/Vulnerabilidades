@@ -339,6 +339,7 @@ td{padding:10px 14px;vertical-align:middle}
       <div class="nav-sec">Herramientas</div>
       <button class="ni admin-only" onclick="navTo('importar',this)"><span class="ni-ico">📥</span> Importar Excel</button>
       <button class="ni" onclick="navTo('capex',this)"><span class="ni-ico">$</span> CAPEX</button>
+      <button class="ni" onclick="navTo('aprobaciones',this)"><span class="ni-ico">!</span> Aprobaciones</button>
       <button class="ni admin-only" onclick="navTo('config',this)"><span class="ni-ico">⚙️</span> Configuración</button>
       <button class="ni admin-only" onclick="navTo('admin',this)"><span class="ni-ico">👤</span> Administrador</button>
     </nav>
@@ -530,7 +531,34 @@ td{padding:10px 14px;vertical-align:middle}
       </div>
     </div>
 
-    <!-- ADMIN PAGE -->
+    <!-- APROBACIONES PAGE -->
+    <div class="page" id="page-aprobaciones">
+      <div style="max-width:1100px">
+        <h2 style="font-size:18px;font-weight:700;margin-bottom:6px">Aprobaciones Pendientes</h2>
+        <p style="font-size:13px;color:var(--g500);margin-bottom:16px">Vulnerabilidades finalizadas por Ingenieria que esperan tu aprobacion de cierre.</p>
+        <div class="tcard">
+          <div style="overflow-x:auto">
+            <table style="width:100%;border-collapse:collapse;font-size:13px">
+              <thead><tr>
+                <th style="background:var(--g50);border-bottom:1px solid var(--g200);padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--g400);text-transform:uppercase">ID</th>
+                <th style="background:var(--g50);border-bottom:1px solid var(--g200);padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--g400);text-transform:uppercase">Detalle</th>
+                <th style="background:var(--g50);border-bottom:1px solid var(--g200);padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--g400);text-transform:uppercase">Subgerencia</th>
+                <th style="background:var(--g50);border-bottom:1px solid var(--g200);padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--g400);text-transform:uppercase">Area</th>
+                <th style="background:var(--g50);border-bottom:1px solid var(--g200);padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--g400);text-transform:uppercase">Resp. ING</th>
+                <th style="background:var(--g50);border-bottom:1px solid var(--g200);padding:8px 12px;text-align:left;font-size:10px;font-weight:700;color:var(--g400);text-transform:uppercase">Accion</th>
+              </tr></thead>
+              <tbody id="aprobacionesList"></tbody>
+            </table>
+          </div>
+          <div id="aprobacionesEmpty" style="display:none;text-align:center;padding:48px;color:var(--g400);font-size:13px">
+            <div style="font-size:32px;margin-bottom:10px;opacity:.4">OK</div>
+            No tienes aprobaciones pendientes
+          </div>
+        </div>
+      </div>
+    </div>
+
+  <!-- ADMIN PAGE -->
     <div class="page" id="page-admin">
       <div style="max-width:900px">
         <h2 style="font-size:18px;font-weight:700;margin-bottom:6px">Administrador</h2>
@@ -681,10 +709,11 @@ function startApp() {
   document.getElementById('loginWrap').classList.add('hide');
   document.getElementById('app').classList.add('on');
   const isAdmin = ROLE==='admin';
-  const isEditor = ROLE==='editor';
+  const isEditor = ROLE==='editor' || ROLE==='ingenieria' || ROLE==='operaciones';
   const canEdit = isAdmin || isEditor;
   const roleEl = document.getElementById('sbRole');
-  roleEl.textContent = isAdmin ? 'Administrador' : isEditor ? 'Editor' : 'Solo Vista';
+  const rolLabels = {admin:'Administrador', editor:'Editor', ingenieria:'Ingenieria', operaciones:'Operaciones', viewer:'Solo Vista'};
+  roleEl.textContent = rolLabels[ROLE] || 'Solo Vista';
   roleEl.className = 'sb-role ' + (isAdmin ? 'role-admin' : isEditor ? 'role-editor' : 'role-view');
   document.getElementById('sbAv').textContent = USER.substring(0,2).toUpperCase();
   document.getElementById('sbUname').textContent = USER_NOMBRE || USER;
@@ -799,6 +828,7 @@ function navTo(name, btn) {
   if(name==='config') loadConfigPage();
   if(name==='capex') loadCapexPage();
   if(name==='admin') loadAdminPage();
+  if(name==='aprobaciones') loadAprobacionesPage();
 }
 
 // ═══════════════════════════════════════
@@ -1272,7 +1302,7 @@ async function openDetalle(id) {
     document.getElementById('dTitle').textContent=`#${v.id} — ${v.tipo||'Vulnerabilidad'}`;
     const isAdmin=ROLE==='admin';
     const todosEstados=['SIN ACCION','EN CURSO','PENDIENTE APROBACION','FINALIZADO'];
-    const flujoLocal = {'SIN ACCION':['EN CURSO'],'EN CURSO':['PENDIENTE APROBACION'],'PENDIENTE APROBACION':[],'FINALIZADO':[]};
+    const flujoLocal = {'SIN ACCION':['EN CURSO'],'EN CURSO':['FINALIZADO'],'PENDIENTE APROBACION':[],'FINALIZADO':[]};
     const pills=todosEstados.map(e=>{
       const sel=v.estado_om===e?' sel':'';
       const esActual = v.estado_om===e;
@@ -1335,26 +1365,32 @@ async function openDetalle(id) {
 
 const FLUJO = {
   'SIN ACCION': ['EN CURSO'],
-  'EN CURSO':  ['PENDIENTE APROBACION'],
+  'EN CURSO':  ['FINALIZADO'],
   'PENDIENTE APROBACION': [],
   'FINALIZADO': []
 };
 
 async function aprobarCierre(id){
   if(!confirm('Aprobar el cierre de esta vulnerabilidad?'))return;
-  await fetch(API+'/api/vulnerabilidades/'+id+'/aprobar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario_nombre:USER_NOMBRE||USER})});
+  const r = await fetch(API+'/api/vulnerabilidades/'+id+'/aprobar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario_nombre:USER_NOMBRE||USER,rol:ROLE})});
+  if(!r.ok){ const d=await r.json(); toast(d.detail||'Error','err'); return; }
   toast('Cierre aprobado');
-  openDetalle(id);
+  const modalAbierto = document.getElementById('ovDetalle').classList.contains('open');
+  if(modalAbierto) openDetalle(id);
   if(document.getElementById('page-dashboard').classList.contains('on'))loadDashboard();
+  else if(document.getElementById('page-aprobaciones').classList.contains('on'))loadAprobacionesPage();
   else fetchVulns(currentPage);
 }
 async function rechazarCierre(id){
   const motivo=prompt('Motivo del rechazo:');
   if(motivo===null)return;
-  await fetch(API+'/api/vulnerabilidades/'+id+'/rechazar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario_nombre:USER_NOMBRE||USER,motivo:motivo})});
+  const r = await fetch(API+'/api/vulnerabilidades/'+id+'/rechazar',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({usuario_nombre:USER_NOMBRE||USER,motivo:motivo,rol:ROLE})});
+  if(!r.ok){ const d=await r.json(); toast(d.detail||'Error','err'); return; }
   toast('Cierre rechazado');
-  openDetalle(id);
+  const modalAbierto = document.getElementById('ovDetalle').classList.contains('open');
+  if(modalAbierto) openDetalle(id);
   if(document.getElementById('page-dashboard').classList.contains('on'))loadDashboard();
+  else if(document.getElementById('page-aprobaciones').classList.contains('on'))loadAprobacionesPage();
   else fetchVulns(currentPage);
 }
 async function quickStatus(id,estado) {
@@ -1367,11 +1403,15 @@ async function quickStatus(id,estado) {
   
   // Admin can change anything
   // Editor can only go forward
+  let estadoFinal = estado;
   if(ROLE!=='admin') {
     const permitidos = FLUJO[actual] || [];
     if(!permitidos.includes(estado)) {
       toast('No puedes retroceder el estado', 'err');
       return;
+    }
+    if(estado === 'FINALIZADO'){
+      estadoFinal = 'PENDIENTE APROBACION';
     }
   }
   
@@ -1379,9 +1419,9 @@ async function quickStatus(id,estado) {
     await fetch(API+'/api/vulnerabilidades/'+id,{
       method:'PATCH',
       headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({estado_om:estado, usuario_nombre: USER_NOMBRE||USER})
+      body:JSON.stringify({estado_om:estadoFinal, usuario_nombre: USER_NOMBRE||USER})
     });
-    toast('Estado → '+estado);
+    toast(estadoFinal==='PENDIENTE APROBACION' ? 'Enviado a Operaciones para aprobacion' : 'Estado -> '+estadoFinal);
     openDetalle(id);
     if(document.getElementById('page-dashboard').classList.contains('on'))loadDashboard();
     else fetchVulns(currentPage);
@@ -1456,6 +1496,24 @@ async function saveForm() {
   const body={detalle};
   const selFields=['subgerencia','area','tipo','responsable_ing','estado_om'];
   selFields.forEach(f=>{const v=document.getElementById('f-'+f)?.value;if(v)body[f]=v;});
+  if(currentId && ROLE!=='admin' && body.estado_om){
+    try{
+      const rChk = await fetch(API+'/api/vulnerabilidades/'+currentId);
+      const vChk = await rChk.json();
+      const estadoActual = vChk.estado_om;
+      if(body.estado_om !== estadoActual){
+        const permitidosChk = FLUJO[estadoActual] || [];
+        if(!permitidosChk.includes(body.estado_om)){
+          toast('No puedes cambiar el estado de '+estadoActual+' a '+body.estado_om, 'err');
+          return;
+        }
+        if(body.estado_om === 'FINALIZADO'){
+          body.estado_om = 'PENDIENTE APROBACION';
+          toast('Enviado a Operaciones para aprobacion de cierre');
+        }
+      }
+    }catch(e){}
+  }
   body.prioridad=parseInt(document.getElementById('f-prioridad').value);
   ['fecha_declaracion','fecha_compromiso'].forEach(f=>{const v=document.getElementById('f-'+f)?.value;if(v)body[f]=v;});
   ['obs_om','obs_ing'].forEach(f=>{const v=document.getElementById('f-'+f)?.value?.trim();if(v)body[f]=v;});
@@ -1756,6 +1814,35 @@ async function eliminarDestinatario(id) {
   if (!confirm('¿Eliminar este destinatario?')) return;
   await fetch('/api/admin/mail/'+id,{method:'DELETE'});
   toast('Destinatario eliminado'); await loadAdminMail();
+}
+
+async function loadAprobacionesPage(){
+  try {
+    const nombreUsuario = USER_NOMBRE || USER;
+    const r = await fetch('/api/vulnerabilidades/pendientes-aprobacion?responsable_om=' + encodeURIComponent(nombreUsuario));
+    const items = await r.json();
+    const tbody = document.getElementById('aprobacionesList');
+    const empty = document.getElementById('aprobacionesEmpty');
+    if (!items.length) {
+      tbody.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+    tbody.innerHTML = items.map(v => `
+      <tr style="border-bottom:1px solid var(--g100)">
+        <td style="padding:8px 12px;font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--g400)">${v.id}</td>
+        <td style="padding:8px 12px;max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer" onclick="openDetalle(${v.id})">${esc(v.detalle||'')}</td>
+        <td style="padding:8px 12px;font-size:12px;color:var(--g600)">${esc(v.subgerencia||'')}</td>
+        <td style="padding:8px 12px;font-size:12px;color:var(--g600)">${esc(v.area||'')}</td>
+        <td style="padding:8px 12px;font-size:12px">${esc(v.responsable_ing||'')}</td>
+        <td style="padding:8px 12px;white-space:nowrap">
+          <button class="btn btn-red btn-xs" onclick="aprobarCierre(${v.id})">Aprobar</button>
+          <button class="btn btn-white btn-xs" onclick="rechazarCierre(${v.id})" style="margin-left:4px">Rechazar</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) { toast('Error cargando aprobaciones', 'err'); }
 }
 
 async function loadCapexPage(){try{const r=await fetch("/api/dashboard/capex");const d=await r.json();document.getElementById("capexTotal").textContent=d.requiere;document.getElementById("capexAprobado").textContent=d.aprobado;document.getElementById("capexRechazado").textContent=d.rechazado;}catch(e){}try{const r2=await fetch("/api/capex");const items=await r2.json();const cl=document.getElementById("capexList");if(!items.length){cl.innerHTML="<tr><td colspan=6 style=text-align:center;padding:32px;color:#adb5bd>Sin vulnerabilidades con CAPEX</td></tr>";return;}cl.innerHTML=items.map(v=>{const s=(val)=>v.estado_capex===val?"selected":"";return "<tr style=border-bottom:1px solid #f1f3f5;cursor:pointer onclick=openDetalle("+v.id+")><td style=padding:8px>"+v.id+"</td><td style=padding:8px;max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap>"+v.detalle+"</td><td style=padding:8px>"+v.area+"</td><td style=padding:8px>"+v.responsable_ing+"</td><td style=padding:8px>"+v.estado_om+"</td><td style=padding:8px><select onchange=cambiarCapex("+v.id+",this.value) onclick=event.stopPropagation() style=font-size:12px><option value=PENDIENTE "+s("PENDIENTE")+">Pendiente</option><option value=APROBADO "+s("APROBADO")+">Aprobado</option><option value=RECHAZADO "+s("RECHAZADO")+">Rechazado</option></select><button onclick=event.stopPropagation();quitarCapex("+v.id+") style=margin-left:6px;background:none;border:none;cursor:pointer>X</button></td></tr>";}).join("");}catch(e){}}async function cambiarCapex(id,estado){await fetch("/api/vulnerabilidades/"+id+"/capex",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({requiere_capex:true,estado_capex:estado})});loadCapexPage();}async function quitarCapex(id){if(!confirm("Quitar CAPEX?"))return;await fetch("/api/vulnerabilidades/"+id+"/capex",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({requiere_capex:false,estado_capex:null})});loadCapexPage();}

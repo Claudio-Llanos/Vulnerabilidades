@@ -238,6 +238,20 @@ async def listar(
     """), {**params, "limit":limit, "offset":offset})
     return {"total":cnt.scalar(),"page":page,"limit":limit,"items":[dict(r._mapping) for r in rows]}
 
+@app.get("/api/vulnerabilidades/pendientes-aprobacion")
+async def pendientes_aprobacion(responsable_om: str, s: AsyncSession = Depends(db)):
+    r = await s.execute(text("""
+        SELECT v.id, v.detalle, v.subgerencia, v.area, v.responsable_ing, v.estado_om
+        FROM vulnerabilidades v
+        WHERE v.estado_om = 'PENDIENTE APROBACION'
+        AND v.responsable_ing IN (
+            SELECT DISTINCT responsable_ing FROM cfg_asociacion_ing_om 
+            WHERE responsable_om = :om AND activo = TRUE
+        )
+        ORDER BY v.id DESC
+    """), {"om": responsable_om})
+    return [dict(x._mapping) for x in r]
+
 @app.get("/api/vulnerabilidades/{vid}")
 async def obtener(vid: int, s: AsyncSession = Depends(db)):
     row = await s.execute(text("SELECT * FROM vulnerabilidades WHERE id = :id"), {"id":vid})
@@ -424,6 +438,10 @@ async def crear_usuario(body: UsuarioIn, s: AsyncSession = Depends(db)):
         await s.execute(text(
             "INSERT INTO usuarios (username, nombre, password, rol) VALUES (:u, :n, :p, :r)"
         ), {"u": body.username, "n": body.nombre, "p": body.password, "r": body.rol})
+        if body.rol == "ingenieria":
+            await s.execute(text(
+                "INSERT INTO cfg_responsables (nombre) VALUES (:n) ON CONFLICT DO NOTHING"
+            ), {"n": body.nombre})
         await s.commit()
         return {"message": "Usuario creado"}
     except Exception:
@@ -435,6 +453,13 @@ async def actualizar_usuario(uid: int, body: UsuarioPatch, s: AsyncSession = Dep
     if not updates: return {"message": "Sin cambios"}
     set_sql = ", ".join(f"{k} = :{k}" for k in updates)
     await s.execute(text(f"UPDATE usuarios SET {set_sql} WHERE id = :id"), {**updates, "id": uid})
+    if updates.get("rol") == "ingenieria":
+        row = await s.execute(text("SELECT nombre FROM usuarios WHERE id=:id"), {"id": uid})
+        r = row.fetchone()
+        if r:
+            await s.execute(text(
+                "INSERT INTO cfg_responsables (nombre) VALUES (:n) ON CONFLICT DO NOTHING"
+            ), {"n": r.nombre})
     await s.commit()
     return {"message": "Actualizado"}
 
@@ -891,20 +916,6 @@ async def rechazar_cierre(vid: int, body: dict, s: AsyncSession = Depends(db)):
         cambios=["Estado: PENDIENTE APROBACION -> EN CURSO", "Motivo: " + motivo], dest=dest
     ))
     return {"message": "Rechazado"}
-
-@app.get("/api/vulnerabilidades/pendientes-aprobacion")
-async def pendientes_aprobacion(responsable_om: str, s: AsyncSession = Depends(db)):
-    r = await s.execute(text("""
-        SELECT v.id, v.detalle, v.subgerencia, v.area, v.responsable_ing, v.estado_om
-        FROM vulnerabilidades v
-        WHERE v.estado_om = 'PENDIENTE APROBACION'
-        AND v.responsable_ing IN (
-            SELECT DISTINCT responsable_ing FROM cfg_asociacion_ing_om 
-            WHERE responsable_om = :om AND activo = TRUE
-        )
-        ORDER BY v.id DESC
-    """), {"om": responsable_om})
-    return [dict(x._mapping) for x in r]
 
 @app.get("/api/vulnerabilidades/{vid}/puede-aprobar")
 async def puede_aprobar(vid: int, responsable_om: str, s: AsyncSession = Depends(db)):
