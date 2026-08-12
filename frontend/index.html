@@ -87,6 +87,8 @@ button,input,select,textarea{font-family:'Inter',sans-serif}
 .ni-ico{font-size:15px;width:18px;text-align:center;flex-shrink:0}
 .ni.admin-only{display:none}
 .ni.admin-only.show{display:flex}
+.ni.ops-only{display:none}
+.ni.ops-only.show{display:flex}
 .sb-foot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08)}
 .sb-user{display:flex;align-items:center;gap:10px}
 .sb-av{width:28px;height:28px;background:rgba(255,255,255,.1);border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:rgba(255,255,255,.7);flex-shrink:0}
@@ -339,7 +341,7 @@ td{padding:10px 14px;vertical-align:middle}
       <div class="nav-sec">Herramientas</div>
       <button class="ni admin-only" onclick="navTo('importar',this)"><span class="ni-ico">📥</span> Importar Excel</button>
       <button class="ni" onclick="navTo('capex',this)"><span class="ni-ico">$</span> CAPEX</button>
-      <button class="ni" onclick="navTo('aprobaciones',this)"><span class="ni-ico">!</span> Aprobaciones</button>
+      <button class="ni ops-only" onclick="navTo('aprobaciones',this)"><span class="ni-ico">!</span> Aprobaciones</button>
       <button class="ni admin-only" onclick="navTo('config',this)"><span class="ni-ico">⚙️</span> Configuración</button>
       <button class="ni admin-only" onclick="navTo('admin',this)"><span class="ni-ico">👤</span> Administrador</button>
     </nav>
@@ -480,6 +482,7 @@ td{padding:10px 14px;vertical-align:middle}
                 <option value="">Subgerencia (opcional)...</option>
               </select>
               <button class="btn btn-red btn-sm" onclick="addArea()" style="align-self:flex-start">+ Agregar</button>
+            </div>
           </div>
           <div class="card" style="grid-column:1/-1">
             <div class="card-title">Asociacion Ingenieria - Operaciones</div>
@@ -497,6 +500,20 @@ td{padding:10px 14px;vertical-align:middle}
               </select>
               <button class="btn btn-red btn-sm" onclick="addAsociacion()">+ Vincular</button>
             </div>
+          </div>
+          <div class="card" style="grid-column:1/-1">
+            <div class="card-title">Notificaciones por Subgerencia / Area</div>
+            <p style="font-size:12px;color:var(--g500);margin-bottom:12px">Define que correos reciben notificaciones para cada Subgerencia y Area. Puedes agregar varios correos por combinacion.</p>
+            <div class="cfg-list" id="cfgMailArea" style="max-height:260px"></div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr auto;gap:8px;margin-top:8px">
+              <select class="cfg-input" id="mailAreaSubg" style="padding:7px 10px">
+                <option value="">Subgerencia...</option>
+              </select>
+              <select class="cfg-input" id="mailAreaArea" style="padding:7px 10px">
+                <option value="">Area (opcional)...</option>
+              </select>
+              <input class="cfg-input" id="mailAreaEmail" placeholder="correo@clarovtr.cl">
+              <button class="btn btn-red btn-sm" onclick="addMailArea()">+ Agregar</button>
             </div>
           </div>
         </div>
@@ -718,6 +735,7 @@ function startApp() {
   document.getElementById('sbAv').textContent = USER.substring(0,2).toUpperCase();
   document.getElementById('sbUname').textContent = USER_NOMBRE || USER;
   document.querySelectorAll('.admin-only').forEach(el => { if(isAdmin) el.classList.add('show'); });
+  document.querySelectorAll('.ops-only').forEach(el => { if(isAdmin || ROLE==='operaciones') el.classList.add('show'); });
   document.querySelectorAll('.admin-btn').forEach(el => { if(canEdit) el.classList.add('show'); });
   if (!canEdit) { document.getElementById('viewBar').classList.add('show'); document.getElementById('viewBar').textContent='👁 Modo vista — solo lectura'; }
   loadCFG().then(() => loadDashboard());
@@ -1588,6 +1606,8 @@ async function loadConfigPage() {
   CFG.subgerencias.forEach(s=>{const o=document.createElement('option');o.value=s;o.textContent=s.length>40?s.substring(0,40)+'…':s;sel.appendChild(o);});
   await loadConfigAsociacion();
   fillAsociacionSelects();
+  await loadConfigMailArea();
+  fillMailAreaSelects();
 }
 
 async function loadConfigAsociacion() {
@@ -1645,6 +1665,54 @@ async function delAsociacion(id) {
   await fetch('/api/config/asociacion/' + id, {method: 'DELETE'});
   toast('Asociacion eliminada');
   await loadConfigAsociacion();
+}
+
+async function loadConfigMailArea() {
+  try {
+    const r = await fetch('/api/config/mail-area');
+    const items = await r.json();
+    document.getElementById('cfgMailArea').innerHTML = items.length ? items.map(m => `
+      <div class="cfg-item">
+        <div>
+          <span class="cfg-name">${esc(m.email)}</span>
+          <div class="cfg-sub">${esc(m.subgerencia)}${m.area ? ' - ' + esc(m.area) : ' (todas las areas)'}</div>
+        </div>
+        <button class="cfg-del" onclick="delMailArea(${m.id})">\u2715</button>
+      </div>
+    `).join('') : '<div style="font-size:12px;color:var(--g400);padding:8px 0">Sin notificaciones configuradas</div>';
+  } catch(e) {}
+}
+
+function fillMailAreaSelects() {
+  const selSubg = document.getElementById('mailAreaSubg');
+  const selArea = document.getElementById('mailAreaArea');
+  if (!selSubg || !selArea) return;
+  selSubg.innerHTML = '<option value="">Subgerencia...</option>' +
+    CFG.subgerencias.map(s => `<option value="${esc(s)}">${esc(s)}</option>`).join('');
+  const areasUnicas = [...new Set(CFG.areas.map(a => a.nombre))];
+  selArea.innerHTML = '<option value="">Area (opcional, todas si vacio)...</option>' +
+    areasUnicas.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+}
+
+async function addMailArea() {
+  const sub = document.getElementById('mailAreaSubg').value;
+  const area = document.getElementById('mailAreaArea').value;
+  const email = document.getElementById('mailAreaEmail').value.trim();
+  if (!sub || !email) { toast('Selecciona Subgerencia e ingresa un correo', 'err'); return; }
+  await fetch('/api/config/mail-area', {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({subgerencia: sub, area: area || null, email: email})
+  });
+  toast('Notificacion agregada');
+  document.getElementById('mailAreaEmail').value = '';
+  await loadConfigMailArea();
+}
+
+async function delMailArea(id) {
+  if (!confirm('Eliminar esta notificacion?')) return;
+  await fetch('/api/config/mail-area/' + id, {method: 'DELETE'});
+  toast('Notificacion eliminada');
+  await loadConfigMailArea();
 }
 
 async function renderCfgList(endpoint, elId, labelFn) {
