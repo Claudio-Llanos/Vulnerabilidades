@@ -87,6 +87,8 @@ button,input,select,textarea{font-family:'Inter',sans-serif}
 .ni-ico{font-size:15px;width:18px;text-align:center;flex-shrink:0}
 .ni.admin-only{display:none}
 .ni.admin-only.show{display:flex}
+.btn.admin-only{display:none}
+.btn.admin-only.show{display:inline-flex}
 .ni.ops-only{display:none}
 .ni.ops-only.show{display:flex}
 .sb-foot{padding:12px 16px;border-top:1px solid rgba(255,255,255,.08)}
@@ -637,7 +639,7 @@ td{padding:10px 14px;vertical-align:middle}
     <div class="mhead"><div class="mtitle" id="dTitle">—</div><button class="mclose" onclick="closeM('ovDetalle')">✕</button></div>
     <div class="mbody" id="dBody"></div>
     <div class="mfoot">
-      <button class="btn btn-danger btn-sm admin-btn" onclick="confirmDelete()">Eliminar</button>
+      <button class="btn btn-danger btn-sm admin-only" onclick="confirmDelete()">Eliminar</button>
       <button class="btn btn-white btn-sm" onclick="exportarExcel()" style="white-space:nowrap">Exportar Excel</button><div class="sp"></div>
       <button class="btn btn-white btn-sm" onclick="closeM('ovDetalle')">Cerrar</button>
       <button class="btn btn-red btn-sm admin-btn" onclick="closeM('ovDetalle');openEdit(currentId)">✏ Editar</button>
@@ -1552,7 +1554,7 @@ async function saveForm() {
 }
 
 async function confirmDelete() {
-  if(ROLE==='viewer'||!currentId||!confirm('¿Eliminar esta vulnerabilidad?'))return;
+  if(ROLE!=='admin'||!currentId||!confirm('¿Eliminar esta vulnerabilidad?'))return;
   try {
     await fetch(API+'/api/vulnerabilidades/'+currentId,{method:'DELETE'});
     toast('Eliminado'); closeM('ovDetalle'); fetchVulns(1);
